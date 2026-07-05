@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+import sys
+import os
+import json
+from datetime import datetime
+
+def log_block(reason, command):
+    log_dir = os.path.expanduser("~/.claude/hooks")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "blocked.log")
+    
+    timestamp = datetime.now().isoformat()
+    cwd = os.getcwd()
+    
+    with open(log_file, "a") as f:
+        f.write(f"[{timestamp}] Blocked: {reason} | CWD: {cwd} | Command: {command}\n")
+
+def check_command(cmd):
+    cmd_upper = cmd.upper()
+    if "RM -RF" in cmd_upper:
+        return "Blocked dangerous command: rm -rf"
+    if "DROP TABLE" in cmd_upper:
+        return "Blocked dangerous SQL: DROP TABLE"
+    if "GIT PUSH --FORCE" in cmd_upper or "GIT PUSH -F" in cmd_upper:
+        return "Blocked dangerous git command: git push --force"
+    if "TRUNCATE" in cmd_upper:
+        return "Blocked dangerous command: TRUNCATE"
+    if "DELETE FROM" in cmd_upper and "WHERE" not in cmd_upper:
+        return "Blocked dangerous SQL: DELETE FROM without WHERE clause"
+    return None
+
+def main():
+    if len(sys.argv) > 1:
+        tool_name = sys.argv[1]
+    else:
+        tool_name = "unknown"
+
+    # Claude Code passes tool arguments as JSON on stdin
+    stdin_data = ""
+    if not sys.stdin.isatty():
+        stdin_data = sys.stdin.read().strip()
+
+    args_values = []
+    if stdin_data:
+        try:
+            parsed = json.loads(stdin_data)
+            if isinstance(parsed, dict):
+                # Extract all string values from the JSON
+                for k, v in parsed.items():
+                    if isinstance(v, str):
+                        args_values.append(v)
+            elif isinstance(parsed, list):
+                args_values = [str(x) for x in parsed if isinstance(x, str)]
+        except json.JSONDecodeError:
+            args_values.append(stdin_data)
+
+    # Also check args just in case
+    args_values.extend(sys.argv[2:])
+
+    for val in args_values:
+        reason = check_command(val)
+        if reason:
+            log_block(reason, val)
+            print(f"Hook blocked the execution: {reason}")
+            sys.exit(1)
+
+    # Allowed
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()
