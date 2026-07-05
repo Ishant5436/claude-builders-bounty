@@ -1,0 +1,210 @@
+{
+  "name": "Weekly GitHub Repo Summary (Claude)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "2131231a-e666-4122-bc57-0402ab6488d7",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "github_repo",
+              "value": "owner/repo"
+            },
+            {
+              "name": "discord_webhook",
+              "value": "https://discord.com/api/webhooks/..."
+            },
+            {
+              "name": "language",
+              "value": "EN"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a28b58a1-ff44-42b7-bdc1-4b726cb3db64",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{'https://api.github.com/repos/' + $json.github_repo + '/commits?since=' + new Date(new Date().setDate(new Date().getDate() - 7)).toISOString()}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e2c38096-7c93-455a-bd54-a690e03e7a08",
+      "name": "Fetch Commits",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{'https://api.github.com/repos/' + $('Config').item.json.github_repo + '/issues?state=closed&since=' + new Date(new Date().setDate(new Date().getDate() - 7)).toISOString()}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5fa85c07-fc55-4428-baec-2c1b483c6628",
+      "name": "Fetch Issues/PRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "messages": {
+          "messageValues": [
+            {
+              "content": "={{'Please write a weekly narrative summary for the GitHub repository ' + $('Config').item.json.github_repo + ' in ' + $('Config').item.json.language + '.\\n\\nCommits:\\n' + JSON.stringify($('Fetch Commits').all()) + '\\n\\nClosed Issues & PRs:\\n' + JSON.stringify($('Fetch Issues/PRs').all())}}"
+            }
+          ]
+        }
+      },
+      "id": "8b51d020-f5a0-47b1-b4ef-5e58129df5c8",
+      "name": "Claude API",
+      "type": "n8n-nodes-base.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1080,
+        300
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "your-credentials-id",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$('Config').item.json.discord_webhook}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{$json.message.content[0].text}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "603831ea-3610-449e-ae09-fec42a04944d",
+      "name": "Discord Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1300,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Commits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Commits": {
+      "main": [
+        [
+          {
+            "node": "Fetch Issues/PRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Issues/PRs": {
+      "main": [
+        [
+          {
+            "node": "Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude API": {
+      "main": [
+        [
+          {
+            "node": "Discord Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
