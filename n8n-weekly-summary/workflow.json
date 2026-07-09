@@ -1,0 +1,311 @@
+{
+  "name": "Weekly Dev Summary Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Every Friday at 5pm",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "githubOwner",
+              "value": "claude-builders-bounty"
+            },
+            {
+              "name": "githubRepo",
+              "value": "claude-builders-bounty"
+            },
+            {
+              "name": "discordWebhookUrl",
+              "value": "YOUR_DISCORD_WEBHOOK_URL"
+            },
+            {
+              "name": "language",
+              "value": "EN"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/' + $json.githubOwner + '/' + $json.githubRepo + '/commits?since=' + new Date(new Date().setDate(new Date().getDate() - 7)).toISOString() }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-weekly-summary"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3",
+      "name": "Get Commits",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        500,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_GITHUB_CREDENTIAL_ID",
+          "name": "GitHub Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/' + $('Configuration').item.json.githubOwner + '/' + $('Configuration').item.json.githubRepo + '/pulls?state=closed&sort=updated&direction=desc' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-weekly-summary"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4",
+      "name": "Get PRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        700,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_GITHUB_CREDENTIAL_ID",
+          "name": "GitHub Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/' + $('Configuration').item.json.githubOwner + '/' + $('Configuration').item.json.githubRepo + '/issues?state=closed&since=' + new Date(new Date().setDate(new Date().getDate() - 7)).toISOString() }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-weekly-summary"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5",
+      "name": "Get Issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_GITHUB_CREDENTIAL_ID",
+          "name": "GitHub Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const commits = $('Get Commits').item.json;\nconst prs = $('Get PRs').item.json.filter(pr => pr.merged_at && new Date(pr.merged_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));\nconst issues = $('Get Issues').item.json.filter(i => !i.pull_request);\n\nconst commitsSummary = Array.isArray(commits) ? commits.map(c => `- ${c.commit.message.split('\\n')[0]} by ${c.commit.author.name}`).join('\\n') : '';\nconst prsSummary = Array.isArray(prs) ? prs.map(pr => `- #${pr.number} ${pr.title} by ${pr.user.login}`).join('\\n') : '';\nconst issuesSummary = Array.isArray(issues) ? issues.map(i => `- #${i.number} ${i.title} by ${i.user.login}`).join('\\n') : '';\n\nconst config = $('Configuration').item.json;\n\nreturn {\n  json: {\n    commitsText: commitsSummary || 'No commits this week.',\n    prsText: prsSummary || 'No merged PRs this week.',\n    issuesText: issuesSummary || 'No closed issues this week.',\n    discordWebhookUrl: config.discordWebhookUrl,\n    language: config.language\n  }\n};"
+      },
+      "id": "6",
+      "name": "Aggregate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 1024,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a developer relations manager. Summarize the following weekly GitHub activity into an engaging narrative summary. Use the following language: {{ $json.language }}.\\n\\nCommits:\\n{{ $json.commitsText }}\\n\\nMerged PRs:\\n{{ $json.prsText }}\\n\\nClosed Issues:\\n{{ $json.issuesText }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "7",
+      "name": "Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1300,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Aggregate').item.json.discordWebhookUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"**Weekly Developer Summary**\\n\\n{{ $json.content[0].text }}\"\n}",
+        "options": {}
+      },
+      "id": "8",
+      "name": "Send to Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1500,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Every Friday at 5pm": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "Get Commits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Commits": {
+      "main": [
+        [
+          {
+            "node": "Get PRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get PRs": {
+      "main": [
+        [
+          {
+            "node": "Get Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Issues": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude API": {
+      "main": [
+        [
+          {
+            "node": "Send to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}
